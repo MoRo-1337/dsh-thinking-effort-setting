@@ -1,0 +1,5 @@
+# dsh-thinking-effort-setting: 给自定义提供方的模型补上官方思考深度。
+# 安装后挂载宿主侧补齐。作曲栏继续用 DSH 自己的「推理等级」菜单。
+- insert:
+    - id: thinking-effort-setting
+      name: dsh-thinking-effort-setting

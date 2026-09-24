@@ -1,0 +1,49 @@
+{
+  "name": "dsh-thinking-effort-setting",
+  "version": "0.1.0",
+  "description": "为 DSH 自定义提供方导入的模型补上官方思考深度：Off、Low、High、Max。",
+  "private": false,
+  "engines": {
+    "node": "^22.19.0 || >=24.0.0",
+    "dsh": ">=0.1.0-rc.7"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json --noEmit && tsdown -c tsdown.config.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "prepare": "npm run build",
+    "prepublishOnly": "npm run build"
+  },
+  "type": "module",
+  "main": "./lib/index.js",
+  "files": [
+    "lib/index.js",
+    "cordis.patch.yml",
+    "README.md",
+    "README.zh.md",
+    "LICENSE"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "keywords": [
+    "deepseek-harness",
+    "dsh",
+    "plugin",
+    "reasoning-effort",
+    "thinking"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/MoRo-1337/dsh-thinking-effort-setting.git"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.21",
+    "tsdown": "^0.22.14",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.7"
+  }
+}
