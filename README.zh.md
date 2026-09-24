@@ -54,16 +54,28 @@ dsh plugin --profile web add github:MoRo-1337/dsh-thinking-effort-setting
 
 安装时会拉取仓库并自动构建。重启 DSH。打开自定义提供方里的模型，作曲栏模型按钮上会出现当前档位；点开「推理等级」即可选择 Off、Low、High、Max。
 
-pnpm 10 及以后会拒绝执行 git 依赖在安装时的构建，直到你明确允许。如果第一次 `add` 停住并点名了这个包，把终端里打印的包名写入该 profile 的 `pnpm-workspace.yaml`：
+profile 不叫 `web` 时，把命令里的 `web` 换成实际名称。
+
+### `ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED`
+
+pnpm 10 及以后会拒绝 git 依赖在安装时的构建，直到这份依赖被明确允许。第一次 `add` 可能停在 `ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED`。报错里的标识符和布尔值是这次安装生成的，只从你自己的终端里抄。不要沿用别人日志里的键或布尔值：键里面的提交每次安装都可能不同，布尔值也不总是同一个。
+
+1. 用记事本或 VS Code 打开该 profile 的 `pnpm-workspace.yaml`。`web` profile 在 Windows 上是 `%USERPROFILE%\.dsh\profiles\web\pnpm-workspace.yaml`；设置了 `DSH_HOME` 时则是 `$DSH_HOME/profiles/web/pnpm-workspace.yaml`。别的 profile 用那个 profile 自己的目录。
+
+2. 找到 `allowBuilds` 段，没有就自己加上。在它下面写入报错给出的那串完整标识符，值用报错给出的布尔值。这是 YAML 布尔值，按报错里的写法填写，不要加引号。文件里已经有 `allowBuilds:` 时，在它下面追加一行。`allowBuilds` 的值如果是空的或者 `false`，改成上面的映射。形式如下：
 
 ```yaml
 allowBuilds:
-  dsh-thinking-effort-setting: true
+  "<报错里的完整标识符>": <报错里的布尔值>
 ```
 
-然后再执行一次上面的 `dsh plugin` 命令。这一允许会在安装时于你的机器上运行本包的代码。若希望以后的推送不会悄悄改变这次安装，可以钉住提交：`github:MoRo-1337/dsh-thinking-effort-setting#<sha>`。
+3. 保存文件，回到终端，重新执行原来的命令：
 
-profile 不叫 `web` 时，把命令里的 `web` 换成实际名称。
+```bash
+dsh plugin --profile web add github:MoRo-1337/dsh-thinking-effort-setting
+```
+
+这一允许会在安装时于你的机器上运行本包的代码。若希望以后的推送不会悄悄改变这次安装，可以钉住提交：`github:MoRo-1337/dsh-thinking-effort-setting#<sha>`。
 
 升级：
 

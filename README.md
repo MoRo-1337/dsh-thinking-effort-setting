@@ -54,16 +54,28 @@ dsh plugin --profile web add github:MoRo-1337/dsh-thinking-effort-setting
 
 The install fetches the repository and builds it for you. Restart DSH. Open a custom-provider model: the composer model button shows the current level, and Effort offers Off, Low, High, and Max.
 
-pnpm 10 and later refuses a git dependency's install-time build until you allow it. If the first `add` stops and names this package, add the key it printed to the profile's `pnpm-workspace.yaml`:
+For a profile other than `web`, replace `web` in the command.
+
+### `ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED`
+
+pnpm 10 and later refuses a git dependency's install-time build until that exact dependency is allowed. The first `add` can stop with `ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED`. The identifier and the boolean in that message are produced for your install. Copy them from your own terminal. Do not reuse a key or a boolean from someone else's log: the commit in the key changes between installs, and the boolean is not always the same.
+
+1. Open the profile file `pnpm-workspace.yaml` in a text editor. For the `web` profile that is `%USERPROFILE%\.dsh\profiles\web\pnpm-workspace.yaml` on Windows, or `$DSH_HOME/profiles/web/pnpm-workspace.yaml` when `DSH_HOME` is set. Another profile uses that profile's directory.
+
+2. Find the `allowBuilds` section. Add one if the file has none. Under it, add the full identifier the error printed, and set it to the boolean the error printed. The value is a YAML boolean: write it as the error shows it, with no quotes. If `allowBuilds:` is already there, append a line beneath it. If `allowBuilds` is empty or `false`, replace that value with the map. The shape is:
 
 ```yaml
 allowBuilds:
-  dsh-thinking-effort-setting: true
+  "<the full identifier from your error>": <the boolean from your error>
 ```
 
-Then run the same `dsh plugin` command again. That allowance runs this package's code on your machine at install time. Pin a commit (`github:MoRo-1337/dsh-thinking-effort-setting#<sha>`) if you want later pushes to stay out of that install.
+3. Save the file and run the original command again:
 
-For a profile other than `web`, replace `web` in the command.
+```bash
+dsh plugin --profile web add github:MoRo-1337/dsh-thinking-effort-setting
+```
+
+That allowance runs this package's code on your machine at install time. Pin a commit (`github:MoRo-1337/dsh-thinking-effort-setting#<sha>`) if you want later pushes to stay out of that install.
 
 Upgrade:
 
