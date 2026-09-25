@@ -2,7 +2,7 @@
 
 English | [中文](./README.zh.md)
 
-Gives models imported through a [DSH (DeepSeek Harness)](https://github.com/deepseek-ai/deepseek-harness) custom provider two things the catalog already has: the official thinking-depth menu, and the input types the model actually accepts. The composer keeps DSH's own menu. Thinking depth matches built-in DeepSeek: **Off**, **Low**, **High**, and **Max**.
+Gives models imported through a [DSH (DeepSeek Harness)](https://github.com/deepseek-ai/deepseek-harness) custom provider two things the catalog already has: the official thinking-depth menu, and the input types the model actually accepts. The composer keeps DSH's own menu. Thinking depth matches built-in DeepSeek: **Off**, **Low**, **High**, and **Max**. Thinking depth is adapted only for **Chat Completions** (`openai-completions`) and the **Responses API** (`openai-responses`).
 
 This plugin was written with the help of AI.
 
@@ -18,6 +18,13 @@ This plugin writes the missing official levels, and image input when it can tell
 
 ## Thinking depth
 
+Two protocols are supported.
+
+- **Chat Completions** (`openai-completions`). A DeepSeek model gets `compat.thinkingFormat: deepseek`, and the level travels as `reasoning_effort`.
+- **Responses API** (`openai-responses`). A DeepSeek model's level travels as `reasoning.effort`, and the outgoing request is rewritten so later steps keep thinking after a tool call.
+
+Anthropic Messages, Azure, Codex, and any other protocol are outside this. The menu levels are still filled in, and the request is left as it was.
+
 For each hand-declared model that is missing a level, it adds the missing keys from the table below. A wire spelling you already stored stays, so `high: ultra` is not rewritten to `high`.
 
 | Menu | `reasoning_effort` sent to the gateway |
@@ -31,6 +38,7 @@ Two further writes happen only when nobody has set them yet:
 
 - When the route has no `reasoning`, and every hand-declared model on it supports High, the default becomes `high`. The menu then has no extra Default row, and a new session starts on High.
 - When the model id or name contains `deepseek`, the protocol is `openai-completions`, and `thinkingFormat` is still empty, the plugin sets `compat.thinkingFormat: deepseek`. Off then sends `thinking: {type: disabled}` instead of leaving a model that thinks by default still thinking.
+- When that model is called through `openai-responses`, the level travels as `reasoning.effort` (`none` for Off). pi-ai also sends OpenAI's `reasoning.summary` and `include: reasoning.encrypted_content`. A DeepSeek gateway ignores those as the thinking switch, and a tool call that was stored without a reasoning item keeps every later step from thinking. A turn that already thought once unsticks the session; a task that starts straight in on tools never thinks. This plugin rewrites those requests: it drops the OpenAI extras, and when the selected effort still asks for thinking it inserts one reasoning item ahead of the first tool call that lacks one.
 
 These stay as they are:
 

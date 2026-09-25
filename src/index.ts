@@ -1,4 +1,5 @@
 import { installInputCommand } from './command.js'
+import { installDeepSeekResponsesFetch } from './responses.js'
 import type { HostContext } from './types.js'
 import { installSettingsWatcher } from './watch.js'
 
@@ -16,10 +17,14 @@ export const inject = ['settings', 'timer', 'commands'] as const
  * images. This plugin adds every missing official level, and writes image
  * input when the model is known to accept it, into the user's own settings
  * layer. `/input image true` and `/input image false` store an explicit
- * choice for the selected model in that same layer. The composer UI stays
- * the stock one.
+ * choice for the selected model in that same layer. DeepSeek on
+ * `openai-responses` is rewritten per request onto that API's `reasoning.effort`
+ * shape, so a tool round that came back without a reasoning item does not
+ * turn thinking off for the rest of the session. The composer UI stays the
+ * stock one.
  */
 export function apply(ctx: HostContext): void {
   installSettingsWatcher(ctx)
   installInputCommand(ctx)
+  ctx.effect(() => installDeepSeekResponsesFetch(), 'dsh-thinking-effort-setting: responses')
 }

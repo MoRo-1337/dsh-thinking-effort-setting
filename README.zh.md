@@ -2,7 +2,7 @@
 
 [English](./README.md) | 中文
 
-给 [DSH（DeepSeek Harness）](https://github.com/deepseek-ai/deepseek-harness) 里通过「自定义提供方」导入的模型补上两件事：官方思考深度，以及模型实际接受的输入类型。作曲栏继续使用 DSH 自带的菜单。思考深度与内置 DeepSeek 一致：**Off**、**Low**、**High**、**Max**。
+给 [DSH（DeepSeek Harness）](https://github.com/deepseek-ai/deepseek-harness) 里通过「自定义提供方」导入的模型补上两件事：官方思考深度，以及模型实际接受的输入类型。作曲栏继续使用 DSH 自带的菜单。思考深度与内置 DeepSeek 一致：**Off**、**Low**、**High**、**Max**。思考深度只适配 **Chat Completions**（`openai-completions`）和 **Responses API**（`openai-responses`）。
 
 此插件借助了 AI 编写。
 
@@ -18,6 +18,13 @@
 
 ## 思考深度
 
+只支持两种协议。
+
+- **Chat Completions**（`openai-completions`）。DeepSeek 模型会写上 `compat.thinkingFormat: deepseek`，档位走 `reasoning_effort`。
+- **Responses API**（`openai-responses`）。DeepSeek 模型的档位走 `reasoning.effort`，并改写出站请求，让工具调用之后的步骤继续思考。
+
+Anthropic Messages、Azure、Codex 以及其他协议不在此列：菜单档位仍会补上，出站请求保持原样。
+
 对手写模型列表里还缺档位的条目，补上下表中缺少的键。已经写过的线上值保留，例如 `high: ultra` 不会被改成 `high`。
 
 | 菜单 | 发给网关的 `reasoning_effort` |
@@ -31,6 +38,7 @@
 
 - 路由还没有 `reasoning`，并且这条路由上每个手写模型都支持 High 时，默认档位写成 `high`。菜单里不会多出一行 Default，新会话从 High 开始。
 - 模型 id 或名称里带 `deepseek`，协议是 `openai-completions`，且还没有 `thinkingFormat` 时，写上 `compat.thinkingFormat: deepseek`。这样 Off 会发送 `thinking: {type: disabled}`，而不是让默认会思考的端点继续思考。
+- 同一条模型走 `openai-responses` 时，档位放在 `reasoning.effort` 里（Off 为 `none`）。pi-ai 还会附上 OpenAI 的 `reasoning.summary` 和 `include: reasoning.encrypted_content`。DeepSeek 网关不靠这两项开关思考，而且历史里若有一次工具调用没有思考记录，后面的每一步都不再思考。先有一轮思考过的会话会恢复，一上来就调用工具的任务则一直不思考。本插件改写这类请求：去掉那两项 OpenAI 附加字段；所选档位仍要求思考时，在第一条缺少思考记录的工具调用前补上一条。
 
 下面这些保持原样：
 
