@@ -78,6 +78,7 @@ describe('installSettingsWatcher', () => {
     const profile = stored?.providers.gateway as { models: Array<Record<string, unknown>>, reasoning: string }
     expect(profile.models[0]?.reasoningEfforts).toEqual({ ...OFFICIAL_LEVELS })
     expect(profile.models[0]?.compat).toEqual({ thinkingFormat: 'deepseek' })
+    expect(profile.models[0]?.input).toEqual(['text', 'image'])
     expect(profile.reasoning).toBe('high')
 
     await vi.advanceTimersByTimeAsync(10_000)

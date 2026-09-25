@@ -2,7 +2,7 @@
 
 English | [中文](./README.zh.md)
 
-Gives models imported through a [DSH (DeepSeek Harness)](https://github.com/deepseek-ai/deepseek-harness) custom provider the official thinking-depth menu. The composer keeps DSH's own menu. The choices match built-in DeepSeek: **Off**, **Low**, **High**, and **Max**.
+Gives models imported through a [DSH (DeepSeek Harness)](https://github.com/deepseek-ai/deepseek-harness) custom provider two things the catalog already has: the official thinking-depth menu, and the input types the model actually accepts. The composer keeps DSH's own menu. Thinking depth matches built-in DeepSeek: **Off**, **Low**, **High**, and **Max**.
 
 This plugin was written with the help of AI.
 
@@ -12,14 +12,11 @@ A built-in provider's models inherit reasoning levels from the installed catalog
 
 An older map that only lists `off`, `high`, and `max` has the same gap. DSH treats a level that was never declared as unsupported, so Low is missing from the menu.
 
-This plugin adds the missing official levels to your own `llm-pi-ai` settings. Once they are declared, the stock composer draws the menu:
+Those models usually have no `input` either. DSH then treats them as text-only. Attaching an image shows “当前模型不支持图片，请切换支持图片的模型”, and the request does not send the image.
 
-1. Open the model button. The root menu has a Model row and an Effort row.
-2. Open Effort. The list is Off, Low, High, and Max, with a check on the current level.
+This plugin writes the missing official levels, and image input when it can tell, into your own settings. The stock composer then draws Effort, and uses `input` to decide whether an image can be attached. The plugin does not replace the composer, and it does not add a slider.
 
-The plugin does not replace the composer, and it does not add a slider.
-
-## What it writes
+## Thinking depth
 
 For each hand-declared model that is missing a level, it adds the missing keys from the table below. A wire spelling you already stored stays, so `high: ultra` is not rewritten to `high`.
 
@@ -37,10 +34,40 @@ Two further writes happen only when nobody has set them yet:
 
 These stay as they are:
 
-- `reasoningEfforts: false`, which explicitly turns reasoning off.
+- `reasoningEfforts: false`, which explicitly turns reasoning off. Image detection is separate: a vision model that opts out of reasoning still receives `input`.
 - A `reasoning` or `thinkingFormat` value that is already set.
-- `modelOverrides` on a built-in catalog. Writing levels there would replace the catalog's own thinking map.
+- `modelOverrides` on a built-in catalog. Writing levels there would replace the catalog's own thinking map. `/input` changes input types only, not those levels.
 - A model that exists only in a lower settings layer and has no entry in your own layer. A models array is replaced as a whole, so copying that entry in would drop the lower layer's name, input modalities, and compat settings.
+
+## Image input
+
+`input` on a custom model is chosen in this order:
+
+1. A non-empty `input` you already wrote stays. `input: [text]` still turns images off. A value written by `/input` counts.
+2. When the provider's model list discloses input types (for example `architecture.input_modalities` or `modalities.input`), that disclosure is used. A list that says text-only is not rewritten to image just because the id looks like Flash.
+3. When the list says nothing, the published DeepSeek split applies. V4.1 Flash accepts images. That covers `deepseek-flash`, `deepseek-v4.1-flash`, and the legacy ids `deepseek-v4-flash` and `deepseek-v4-flash-vision-exp`, which now alias the same model. V4 Pro does not accept images and stays text-only. A model this plugin cannot classify gets no `input` write, so a guess is not stored into the session.
+
+Once the stored value is `[text, image]`, the composer allows an image and the request sends it.
+
+### `/input`
+
+The composer command changes only the selected model and stores the result. Later automatic detection does not change a value this command wrote.
+
+```text
+/input image true
+/input image false
+```
+
+| Command | Effect |
+| --- | --- |
+| `/input image true` | Adds image input. A model with no declaration becomes `text` and `image`. |
+| `/input image false` | Removes image input and leaves text. |
+| `/input text true` | Adds text. |
+| `/input text false` | Removes text. This fails when text is the only input left. |
+
+A custom provider is saved as that model's `input` under `llm-pi-ai`. Built-in DeepSeek is saved as that model's `inputModalities` under `llm-deepseek`. Turning images off there also removes `imagePixelBudget` and `imageMaxBytes` on that model. On success the composer confirms the current inputs, for example: `zhongy/deepseek-v4.1-flash 已开启图片输入，并已写入配置。当前输入：text、image。`
+
+If the model is not in the saved list, the command does not create a whole catalog. That would replace the lower layer. Add the model in Settings first.
 
 ## Install
 
@@ -52,7 +79,7 @@ No manual build is required. From any directory:
 dsh plugin --profile web add github:MoRo-1337/dsh-thinking-effort-setting
 ```
 
-The install fetches the repository and builds it for you. Restart DSH. Open a custom-provider model: the composer model button shows the current level, and Effort offers Off, Low, High, and Max.
+The install fetches the repository and builds it for you. Restart DSH. Open a custom-provider model: the composer model button shows the current level, and Effort offers Off, Low, High, and Max. Type `/input` to turn image or text input on or off for the selected model.
 
 For a profile other than `web`, replace `web` in the command.
 
@@ -91,7 +118,7 @@ Remove:
 dsh plugin --profile web remove dsh-thinking-effort-setting
 ```
 
-`reasoningEfforts` already written stays in that profile's `cordis.patch.yml`. To drop the levels, delete `reasoningEfforts` on the model and the `reasoning: high` this plugin added on the route.
+Levels and input types already written stay in settings. They are often in the `llm-pi-ai` section of `$DSH_HOME/settings.yaml`. When settings are stored in the profile's `cordis.patch.yml`, they are in that file's matching section. To drop them, delete `reasoningEfforts` and `input` on the model. For a built-in DeepSeek model, delete `inputModalities`. The route's `reasoning: high`, when this plugin added it, can be deleted too.
 
 ## Build it yourself
 
@@ -105,7 +132,7 @@ dsh plugin --profile web add ./dsh-thinking-effort-setting
 
 Run the `add` from the directory that contains this checkout, or pass the checkout's absolute path. `npm run build` writes `lib/index.js`, which is the file DSH loads. Restart DSH after installing.
 
-`npm test` runs the level-fill and settings-watcher tests.
+`npm test` runs the level-fill, image-input, `/input` command, and settings-watcher tests.
 
 ## When the gateway still rejects the request
 
@@ -122,6 +149,8 @@ The menu only means DSH sends the selected thinking depth. Some OpenAI-compatibl
 ```
 
 Replace `my-gateway` with the custom provider's route id. For another profile, use that profile's directory instead of `web`.
+
+If image input was declared and the endpoint still rejects the image, turn it off with `/input image false`, or set that model's `input` to `[text]`.
 
 ## License
 

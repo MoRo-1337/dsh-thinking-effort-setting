@@ -1,7 +1,7 @@
 {
   "name": "dsh-thinking-effort-setting",
   "version": "0.1.0",
-  "description": "为 DSH 自定义提供方导入的模型补上官方思考深度：Off、Low、High、Max。",
+  "description": "为 DSH 自定义提供方导入的模型补上官方思考深度，并按模型支持的输入类型打开图片。",
   "private": false,
   "engines": {
     "node": "^22.19.0 || >=24.0.0",

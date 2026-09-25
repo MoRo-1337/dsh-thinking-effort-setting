@@ -1,3 +1,4 @@
+import { discoveryKey, imageInputToWrite, type Modality } from './input.js'
 import { isRecord, type SettingsPathOp, type UnknownRecord } from './types.js'
 
 /**
@@ -58,6 +59,8 @@ export interface ProviderDefaultsResult {
   readonly ops: readonly SettingsPathOp[]
   readonly filled: number
   readonly reasoningSet: number
+  /** Models that gained `input: [text, image]` on this pass. */
+  readonly inputsSet: number
   readonly skipped: SkippedDefaults
 }
 
@@ -148,12 +151,19 @@ function withMissingOfficialLevels(existing: UnknownRecord | undefined): { reado
   return { efforts, changed }
 }
 
-function withOfficialLevels(userEntry: UnknownRecord, efforts: UnknownRecord, thinkingFormat: boolean): UnknownRecord {
+function withOfficialLevels(
+  userEntry: UnknownRecord,
+  efforts: UnknownRecord,
+  thinkingFormat: boolean,
+  input: readonly Modality[] | undefined,
+): UnknownRecord {
   const next: UnknownRecord = { ...userEntry, reasoningEfforts: efforts }
-  if (!thinkingFormat) return next
-  const compat = isRecord(userEntry.compat) ? { ...userEntry.compat } : {}
-  compat.thinkingFormat = 'deepseek'
-  next.compat = compat
+  if (thinkingFormat) {
+    const compat = isRecord(userEntry.compat) ? { ...userEntry.compat } : {}
+    compat.thinkingFormat = 'deepseek'
+    next.compat = compat
+  }
+  if (input !== undefined) next.input = [...input]
   return next
 }
 
@@ -161,29 +171,43 @@ interface ModelRewrite {
   readonly models: unknown[]
   /** Models that gained the official level set on this pass. */
   readonly filled: number
+  /** Models that gained image input on this pass. */
+  readonly inputsSet: number
   /** True when the user-layer array itself must be written. */
   readonly changed: boolean
   /** Efforts each user-layer model will have after this rewrite. `false` opts out. */
   readonly efforts: readonly unknown[]
 }
 
+function inputFor(
+  route: string,
+  userEntry: UnknownRecord,
+  resolved: UnknownRecord | undefined,
+  discovered: ReadonlyMap<string, readonly Modality[]> | undefined,
+): readonly Modality[] | undefined {
+  return imageInputToWrite(userEntry, resolved, discovered?.get(discoveryKey(route, text(userEntry.id))))
+}
+
 /**
- * Rewrite the user's model array where the resolved entry has no levels.
+ * Rewrite the user's model array where a level or image input is missing.
  *
  * The array is written whole. The older settings service walks paths through
  * plain objects only, so a numeric index would replace the array with an
  * object. Entries past the user's own list are counted and left alone.
  */
 function rewriteModels(
+  route: string,
   userModels: readonly unknown[],
   resolvedModels: readonly unknown[],
   userProfile: UnknownRecord | undefined,
   resolvedProfile: UnknownRecord,
+  discovered: ReadonlyMap<string, readonly Modality[]> | undefined,
   skipped: SkippedDefaults,
 ): ModelRewrite {
   const models = [...userModels]
   const efforts: unknown[] = []
   let filled = 0
+  let inputsSet = 0
   let changed = false
 
   userModels.forEach((userEntry, index) => {
@@ -197,18 +221,25 @@ function rewriteModels(
       return
     }
     const declared = resolved?.reasoningEfforts ?? userEntry.reasoningEfforts
-    // `false` is an explicit opt-out. Leave the model, and do not add a thinking dialect.
+    const input = inputFor(route, userEntry, resolved, discovered)
+    // `false` is an explicit opt-out of reasoning. Leave the levels, and do not add a thinking dialect.
     if (declared === false) {
       efforts.push(false)
+      if (input !== undefined) {
+        models[index] = { ...userEntry, input: [...input] }
+        inputsSet += 1
+        changed = true
+      }
       return
     }
     const stored = effortsOf(userEntry.reasoningEfforts) ?? effortsOf(declared)
     const merged = withMissingOfficialLevels(stored)
     const thinkingFormat = needsDeepSeekFormat(userEntry, resolved, userProfile, resolvedProfile)
     if (merged.changed) skipped.missing += 1
-    if (merged.changed || thinkingFormat) {
-      models[index] = withOfficialLevels(userEntry, merged.efforts, thinkingFormat)
+    if (merged.changed || thinkingFormat || input !== undefined) {
+      models[index] = withOfficialLevels(userEntry, merged.efforts, thinkingFormat, input)
       if (merged.changed) filled += 1
+      if (input !== undefined) inputsSet += 1
       changed = true
     }
     efforts.push(merged.efforts)
@@ -220,7 +251,7 @@ function rewriteModels(
     skipped.unmatched += 1
   }
 
-  return { models, filled, changed, efforts }
+  return { models, filled, inputsSet, changed, efforts }
 }
 
 function countUnreachable(resolvedModels: readonly unknown[], skipped: SkippedDefaults): void {
@@ -232,21 +263,28 @@ function countUnreachable(resolvedModels: readonly unknown[], skipped: SkippedDe
 }
 
 /**
- * Path edits that give every hand-declared model the official four levels.
+ * Path edits that give every hand-declared model the official four levels,
+ * and image input when that model is known to accept images.
  *
  * `providers` is the resolved section and decides where a level is missing.
  * `user` is the user's own layer and is the only value a payload may quote.
+ * `discovered` carries modality lists read from a route's model listing.
  * Catalog `modelOverrides` are left alone: writing `reasoningEfforts` there
  * would replace the installed catalog's own thinking map.
  */
-export function fillProviderDefaults(providers: unknown, user: unknown): ProviderDefaultsResult {
+export function fillProviderDefaults(
+  providers: unknown,
+  user: unknown,
+  discovered?: ReadonlyMap<string, readonly Modality[]>,
+): ProviderDefaultsResult {
   const skipped: SkippedDefaults = { missing: 0, unmatched: 0 }
-  if (!isRecord(providers)) return { ops: [], filled: 0, reasoningSet: 0, skipped }
+  if (!isRecord(providers)) return { ops: [], filled: 0, reasoningSet: 0, inputsSet: 0, skipped }
 
   const userProviders = isRecord(user) ? user : undefined
   const ops: SettingsPathOp[] = []
   let filled = 0
   let reasoningSet = 0
+  let inputsSet = 0
 
   for (const [route, rawProfile] of Object.entries(providers)) {
     if (!isRecord(rawProfile)) continue
@@ -256,11 +294,12 @@ export function fillProviderDefaults(providers: unknown, user: unknown): Provide
 
     let efforts: readonly unknown[] = []
     if (resolvedModels !== undefined && userModels !== undefined) {
-      const rewritten = rewriteModels(userModels, resolvedModels, userProfile, rawProfile, skipped)
+      const rewritten = rewriteModels(route, userModels, resolvedModels, userProfile, rawProfile, discovered, skipped)
       efforts = rewritten.efforts
       if (rewritten.changed) {
         ops.push({ op: 'set', path: ['providers', route, 'models'], value: rewritten.models })
         filled += rewritten.filled
+        inputsSet += rewritten.inputsSet
       }
     } else if (resolvedModels !== undefined) {
       countUnreachable(resolvedModels, skipped)
@@ -274,5 +313,5 @@ export function fillProviderDefaults(providers: unknown, user: unknown): Provide
     }
   }
 
-  return { ops, filled, reasoningSet, skipped }
+  return { ops, filled, reasoningSet, inputsSet, skipped }
 }

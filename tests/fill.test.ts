@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { DEFAULT_REASONING, OFFICIAL_LEVELS, fillProviderDefaults, selectableEffortIds } from '../src/fill.ts'
+import type { Modality } from '../src/input.ts'
 
 const LEVELS = { ...OFFICIAL_LEVELS }
 
@@ -14,8 +15,12 @@ function resolvedModel(entry: Record<string, unknown>): Record<string, unknown> 
   return { ...RESOLVED_MODEL_DEFAULTS, ...entry, compat: { ...RESOLVED_MODEL_DEFAULTS.compat, ...(entry.compat as object | undefined) } }
 }
 
-function fill(providers: Record<string, unknown>, user: Record<string, unknown>) {
-  return fillProviderDefaults(providers, user)
+function fill(
+  providers: Record<string, unknown>,
+  user: Record<string, unknown>,
+  discovered?: ReadonlyMap<string, readonly Modality[]>,
+) {
+  return fillProviderDefaults(providers, user, discovered)
 }
 
 describe('official menu levels', () => {
@@ -67,6 +72,7 @@ describe('fillProviderDefaults', () => {
             name: 'DeepSeek-V4.1-Flash',
             reasoningEfforts: LEVELS,
             compat: { thinkingFormat: 'deepseek' },
+            input: ['text', 'image'],
           },
           {
             id: 'claude-sonnet',
@@ -94,8 +100,10 @@ describe('fillProviderDefaults', () => {
     expect(result.reasoningSet).toBe(0)
     const written = result.ops[0]?.value as Array<Record<string, unknown>>
     expect(written[0]?.reasoningEfforts).toEqual({ off: null, high: 'high', max: 'max', low: 'low' })
+    expect(written[0]?.input).toEqual(['text', 'image'])
     expect(selectableEffortIds(written[0]?.reasoningEfforts as Record<string, string | null>)).toEqual(['off', 'low', 'high', 'max'])
     expect(written[1]?.reasoningEfforts).toEqual({ off: null, high: 'ultra', low: 'low', max: 'max' })
+    expect(written[1]).not.toHaveProperty('input')
     expect(written[2]).toEqual(models[2])
   })
 
@@ -186,9 +194,67 @@ describe('fillProviderDefaults', () => {
       id: 'DeepSeek-V4.1-Flash',
       reasoningEfforts: LEVELS,
       compat: { thinkingFormat: 'deepseek' },
+      input: ['text', 'image'],
     }]
     const profile = { api: 'openai-completions', reasoning: DEFAULT_REASONING, models }
     const result = fill({ gateway: profile }, { gateway: profile })
     expect(result.ops).toEqual([])
+  })
+
+  it('marks image input on a responses gateway without adding the completions dialect', () => {
+    const models = [{ id: 'deepseek-v4.1-flash', name: 'deepseek-v4.1-flash' }]
+    const result = fill(
+      { zhongy: { api: 'openai-responses', baseURL: 'https://gateway.example/v1', models: models.map(resolvedModel) } },
+      { zhongy: { api: 'openai-responses', baseURL: 'https://gateway.example/v1', models } },
+    )
+    const written = result.ops[0]?.value as Array<Record<string, unknown>>
+    expect(written[0]?.input).toEqual(['text', 'image'])
+    expect(written[0]).not.toHaveProperty('compat')
+    expect(result.inputsSet).toBe(1)
+  })
+
+  it('leaves DeepSeek V4 Pro text-only and keeps an explicit text list', () => {
+    const models = [
+      { id: 'deepseek-v4-pro', name: 'DeepSeek V4 Pro' },
+      { id: 'deepseek-v4.1-flash', input: ['text'] },
+    ]
+    const result = fill(
+      { gateway: { api: 'openai-completions', models: models.map(entry => resolvedModel(entry)) } },
+      { gateway: { api: 'openai-completions', models } },
+    )
+    const written = result.ops[0]?.value as Array<Record<string, unknown>>
+    expect(written[0]).not.toHaveProperty('input')
+    expect(written[1]?.input).toEqual(['text'])
+    expect(result.inputsSet).toBe(0)
+  })
+
+  it('does not pin image input the resolved entry already advertises', () => {
+    const models = [{ id: 'deepseek-v4.1-flash' }]
+    const result = fill(
+      { gateway: { api: 'openai-responses', models: [resolvedModel({ id: 'deepseek-v4.1-flash', input: ['text', 'image'] })] } },
+      { gateway: { api: 'openai-responses', models } },
+    )
+    const written = result.ops[0]?.value as Array<Record<string, unknown>>
+    expect(written[0]).not.toHaveProperty('input')
+    expect(result.inputsSet).toBe(0)
+  })
+
+  it('uses a disclosed listing, including a text-only answer for a flash id', () => {
+    const image = fill(
+      { gateway: { api: 'openai-responses', reasoning: 'high', models: [resolvedModel({ id: 'acme-vision', reasoningEfforts: LEVELS })] } },
+      { gateway: { api: 'openai-responses', reasoning: 'high', models: [{ id: 'acme-vision', reasoningEfforts: LEVELS }] } },
+      new Map([['gateway\0acme-vision', ['text', 'image']]]),
+    )
+    const imageModel = (image.ops[0]?.value as Array<Record<string, unknown>>)[0]
+    expect(imageModel?.input).toEqual(['text', 'image'])
+    expect(image.inputsSet).toBe(1)
+
+    const textOnly = fill(
+      { gateway: { api: 'openai-responses', reasoning: 'high', models: [resolvedModel({ id: 'deepseek-v4.1-flash', reasoningEfforts: LEVELS })] } },
+      { gateway: { api: 'openai-responses', reasoning: 'high', models: [{ id: 'deepseek-v4.1-flash', reasoningEfforts: LEVELS }] } },
+      new Map([['gateway\0deepseek-v4.1-flash', ['text']]]),
+    )
+    expect(textOnly.ops).toEqual([])
+    expect(textOnly.inputsSet).toBe(0)
   })
 })

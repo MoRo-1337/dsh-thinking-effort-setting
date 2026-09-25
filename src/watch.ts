@@ -1,6 +1,8 @@
 import { AsyncResource } from 'node:async_hooks'
 
+import { settingsEpoch } from './epoch.js'
 import { fillProviderDefaults } from './fill.js'
+import { discoverRouteInputs } from './probe.js'
 import { readSettingsSection, readSettingsSectionUser, settingsChangeEvent, settingsModelOf } from './settings-model.js'
 import { isRecord, type HostContext, type HostSettings } from './types.js'
 
@@ -35,7 +37,27 @@ function readUserProviders(settings: HostSettings): { readonly providers: unknow
   return { providers: user.providers, readable: true }
 }
 
-async function fillDefaults(settings: HostSettings): Promise<FillOutcome> {
+const KEY_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/
+
+async function resolveApiKey(ctx: HostContext, name: string): Promise<string | undefined> {
+  if (!KEY_NAME.test(name)) return undefined
+  const get = ctx.get
+  if (typeof get === 'function') {
+    try {
+      const service = get.call(ctx, 'credentials') as { resolve?: (ref: string) => Promise<{ value?: string } | undefined> } | undefined
+      if (typeof service?.resolve === 'function') {
+        const hit = await service.resolve(name)
+        if (typeof hit?.value === 'string' && hit.value.trim().length > 0) return hit.value.trim()
+      }
+    } catch {
+      // A credentials service that throws reads as "no stored key". A public listing can still answer.
+    }
+  }
+  const fromEnv = process.env[name]
+  return typeof fromEnv === 'string' && fromEnv.trim().length > 0 ? fromEnv.trim() : undefined
+}
+
+async function fillDefaults(settings: HostSettings, ctx: HostContext): Promise<FillOutcome> {
   if (settings.writable !== true) return { filled: 0 }
   const notYet: FillOutcome = { filled: 0 }
 
@@ -47,7 +69,15 @@ async function fillDefaults(settings: HostSettings): Promise<FillOutcome> {
   // layer makes every entry look unreachable, which is a retry, not a verdict.
   if (!user.readable) return notYet
 
-  const result = fillProviderDefaults(section.providers, user.providers)
+  const seenEpoch = settingsEpoch()
+  const discovered = await discoverRouteInputs(
+    section.providers,
+    user.providers,
+    name => resolveApiKey(ctx, name),
+  )
+  for (const warning of discovered.warnings) log(warning)
+
+  const result = fillProviderDefaults(section.providers, user.providers, discovered.modalities)
   if (result.skipped.unmatched > 0) {
     log(
       'left', result.skipped.unmatched, 'model(s) unfilled: they come from a lower settings layer,',
@@ -63,13 +93,18 @@ async function fillDefaults(settings: HostSettings): Promise<FillOutcome> {
     return { filled: 0, remaining: reachable }
   }
 
+  // `/input` may have stored a choice while this pass was reading. Writing the
+  // older list would drop that choice, so leave it for the pass that follows.
+  if (settingsEpoch() !== seenEpoch) return { filled: 0, remaining: reachable > 0 ? reachable : 1 }
+
   await mutate.call(settings, SETTINGS_NAMESPACE, result.ops)
   const parts = [
     result.filled > 0 ? `filled official thinking levels for ${result.filled} model(s)` : '',
     result.reasoningSet > 0 ? `set the route default to ${result.reasoningSet} provider(s)` : '',
+    result.inputsSet > 0 ? `marked image input for ${result.inputsSet} model(s)` : '',
   ].filter(part => part.length > 0)
   log(parts.join('; '))
-  return { filled: result.filled + result.reasoningSet, remaining: reachable }
+  return { filled: result.filled + result.reasoningSet + result.inputsSet, remaining: reachable }
 }
 
 /** Watch `llm-pi-ai` and fill hand-declared models that have no thinking levels. */
@@ -118,7 +153,7 @@ export function installSettingsWatcher(ctx: HostContext): void {
           let passes = 0
           do {
             queued = false
-            outcome = await fillDefaults(settings)
+            outcome = await fillDefaults(settings, ctx)
             passes += 1
           } while (alive && queued && passes < MAX_FILL_PASSES)
           if (alive && queued) {
